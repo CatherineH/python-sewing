@@ -1,0 +1,4 @@
+numpy
+pdfrw
+svgpathtools
+svgwrite
