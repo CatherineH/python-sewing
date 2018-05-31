@@ -33,3 +33,13 @@ Then, run:
 python3 merge_pieces.py --filename to_merge.svg
 ```
 
+filmbox_to_pattern.py
+=====================
+
+Flatten a filmbox model to a sewing pattern. python <= 3.3 only. Install the [Autodesk FBX python extensions](https://www.autodesk.com/developer-network/platform-technologies/fbx-sdk-2019-0) first.
+
+Usage:
+
+```bash
+python2.7 filmbox_to_pattern.py --fbx workspace/your_fbx.FBX
+```
