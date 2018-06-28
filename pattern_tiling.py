@@ -80,7 +80,7 @@ clip_path.add(dwg.path(d=new_pent().d()))
 group = dwg.add(dwg.g(clip_path="url(#pent_path)",
                       transform="translate({}, {})".format(dx, dy), id="clippedpath"))
 for i, path in enumerate(all_paths):
-    group.add(dwg.path(d=path.d(), style=attributes[i]['style'], id=attributes[i]['id']))
+    group.add(dwg.path(d=path.d(), style=attributes[i].get('style'), id=attributes[i]['id']))
 dwg.add(dwg.use("#clippedpath", transform="transform(100, 100)"))
 
 dwg.viewbox(min(bbox[0], bbox[1]), min(bbox[2], bbox[3]), width, height)
@@ -93,26 +93,23 @@ open(path_filename, "w").write(xml.toprettyxml())
 
 dwg = Drawing("tiling2.svg", profile="tiny")
 transforms = [[0, 0]]
-print("original pent", new_pent().d())
 pents = [new_pent()]
 # point 2 of pentagon 2 needs to be attached to point 2 of pentagon 1
-pents.append(parse_path(transform_path(rotate_transform(90), new_pent().d())))
+pents.append(transform_path(rotate_transform(90), new_pent()))
 diff = pents[0][1].end - pents[1][1].end
 transforms.append([90, diff])
 pents[1] = pents[1].translated(diff)
-pents.append(parse_path(transform_path(rotate_transform(180), new_pent().d())))
+pents.append(transform_path(rotate_transform(180), new_pent()))
 # point 4 of pentagon 3 needs to be attached to point 3 of pentagon 1
 diff = pents[0][2].end - pents[2][3].end
 transforms.append([180, diff])
 pents[2] = pents[2].translated(diff)
-pents.append(parse_path(transform_path(rotate_transform(-90), new_pent().d())))
+pents.append(transform_path(rotate_transform(-90), new_pent()))
 # point 5 of pentagon 4 needs to be attached to point 2 of pentagon 1
 diff = pents[0][4].end - pents[3][4].end
 transforms.append([-90, diff])
 pents[3] = pents[3].translated(diff)
 
-for pent in pents:
-    print(pent.d())
 colors = get_paletton("workspace/paletton.txt")
 num_across = 6
 num_down = 3
@@ -143,7 +140,7 @@ dwg.viewbox(min(bbox[0], bbox[1]), min(bbox[2], bbox[3]), width, height)
 dwg.save(pretty=True)
 
 
-dwg = Drawing("snake_tiling_m.svg", profile="tiny")
+dwg = Drawing("snake_tiling_m.svg")
 # pents_group is a group of 4 pentagons
 pents_group = dwg.add(dwg.g())
 current_color = 0
@@ -156,13 +153,11 @@ def format_transform(angle, diff):
     return "matrix({},{},{},{},{},{})".format(*transform)
 
 
-def add_pentagon(transform, current_color):
-    pent_group = pents_group.add(dwg.g(transform=format_transform(*transform))) # id="pentagon{}".format(current_color
+def add_pentagon(group, transform, current_color):
+    pent_group = group.add(dwg.g(transform=format_transform(*transform))) # id="pentagon{}".format(current_color
     pent_group.add(dwg.path(**{'d': new_pent().d(), 'fill': colors[current_color % len(colors)],
                                'stroke-width': 4, 'stroke': rgb(0, 0, 0)}))
-
-for i in range(4):
-    add_pentagon(transforms[i], i)
+    return pent_group
 
 
 bottom_length = abs(points[2]-points[3])
@@ -173,11 +168,17 @@ for y in range(num_down):
         # if x is odd, point 1 of pent 1 needs to be attached to point 3 of pent 2
         if x % 2 == 1:
             dx = int(x/2)*rep_spacing+pent_width*2+column_offset.real
+            diff = dx + column_offset.imag*1j
             transform = "translate({}, {})".format(dx, column_offset.imag)
         else:
-            transform = "translate({}, {})".format(int(x/2)*rep_spacing, 0)
-        rgroup = dgroup.add(dwg.g(transform=transform))
-        rgroup.add(pents_group)
+            diff = int(x/2)*rep_spacing
+            transform = "translate({}, {})".format(diff, 0)
+        for i in range(4):
+            pent_group = add_pentagon(dgroup, (transforms[i][0], transforms[i][1]+diff), current_color)
+            for i, path in enumerate(all_paths):
+                pent_group.add(dwg.path(**{'d':path.d(), 'style':attributes[i].get('style'),
+                                   'id':attributes[i]['id']}))
+            current_color += 1
 
 dwg.viewbox(min(bbox[0], bbox[1]), min(bbox[2], bbox[3]), width, height)
 dwg.save(pretty=True)
