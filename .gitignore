@@ -3,4 +3,5 @@
 *.pyc
 *.png
 workspace
+output
 lib
