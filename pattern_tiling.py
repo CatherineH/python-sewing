@@ -2,6 +2,7 @@ from math import pi, exp, cos, sin
 from os.path import basename, isdir
 
 from os import makedirs
+import subprocess
 from svgpathtools import Line, svg2paths, Path, parse_path
 from svgwrite import Drawing, rgb
 
@@ -47,153 +48,63 @@ def format_transform(angle, diff):
     return "matrix({},{},{},{},{},{})".format(*transform)
 
 
+def prop(property_name, generator):
+    def getter(self):
+        if not hasattr(self, "_"+property_name):
+            self.__getattribute__(generator)()
+        return self.__getattribute__("_"+property_name)
+    return property(getter)
+
+
 class CairoTiler(object):
     def __init__(self, filename, dx=None, dy=None, repetitions=3):
         self.filename = filename
         self.dx = dx
         self.dy = dy
-        self._points = None
-        self._tile_paths = None
-        self._tile_attributes = None
-        self._pent_width = None
-        self._pent_height = None
-        self._pent_x = None
-        self._pent_y = None
-        self._colors = None
-        self._bottom_length = None
-        self._rep_spacing = None
-        self._transforms = None
-        self._column_offset = None
-        self._pattern_viewbox = None
-        self._cairo_group = None
+        if repetitions is None:
+            raise ValueError("got no repetitions")
         self.repetitions = repetitions
+
         self.output_folder = "output"
         if not isdir(self.output_folder):
             makedirs(self.output_folder)
 
-    @property
-    def points(self):
-        if self._points:
-            return self._points
-        # we want a pentagon with the interior angles 120, 90, 120, 120, 90 interior
-        # angles
-        #     1
-        # 5        2
-        #    4  3
-        angle1 = 120.0
-        length1 = 300
-        # start with the top corner at 0, 0
-        self._points = [0, None, None, None, None]
-        self._points[1] = self._points[0] + length1 * cexp(1j * 0.5 * angle1 * pi / 180.0)
-        self._points[4] = self._points[0] + length1 * cexp(-1j * 0.5 * angle1 * pi / 180.0)
-        angle23 = (180 - angle1 * 0.5 - 90)
-        self._points[2] = self._points[1] + length1 * cexp(-1j * angle23 * pi / 180.0)
-        self._points[3] = self._points[4] + length1 * cexp(1j * angle23 * pi / 180.0)
-        return self._points
+    bottom_length = prop("bottom_length", "calc_bottom_length")
+    cairo_group = prop("cairo_group", "calculate_transforms")
+    colors = prop("colors", "init_colors")
+    column_offset = prop("column_offset", "calculate_transforms")
+    pattern_viewbox = prop("pattern_viewbox", "calc_pattern_viewbox")
+    pent_height = prop("pent_height", "calc_pentagon_dimensions")
+    pent_width = prop("pent_width", "calc_pentagon_dimensions")
+    pent_x = prop("pent_x", "calc_pentagon_dimensions")
+    pent_y = prop("pent_y", "calc_pentagon_dimensions")
+    points = prop("points", "init_pentagon_points")
+    rep_spacing = prop("rep_spacing", "calc_rep_spacing")
+    tile_attributes = prop("tile_attributes", "import_tile")
+    tile_paths = prop("tile_paths", "import_tile")
+    transforms = prop("transforms", "calculate_transforms")
 
     @property
-    def tile_paths(self):
-        if self._tile_paths:
-            return self._tile_paths
-        self.import_tile()
-        return self._tile_paths
+    def num_down(self):
+        return int(1 + self.repetitions)
 
     @property
-    def tile_attributes(self):
-        if self._tile_attributes:
-            return self._tile_attributes
-        self.import_tile()
-        return self._tile_attributes
+    def num_across(self):
+        return int(1 + 2 * self.repetitions)
 
-    @property
-    def pent_width(self):
-        if self._pent_width is None:
-            return self._pent_width
-        self.calc_pentagon_dimensions()
-        return self._pent_width
-
-    @property
-    def pent_height(self):
-        if self._pent_height is None:
-            return self._pent_height
-        self.calc_pentagon_dimensions()
-        return self._pent_height
-
-    @property
-    def pent_x(self):
-        if self._pent_x:
-            return self._pent_x
-        self.calc_pentagon_dimensions()
-        return self._pent_x
-
-    @property
-    def pent_y(self):
-        if self._pent_y:
-            return self._pent_y
-        self.calc_pentagon_dimensions()
-        return self._pent_y
-
-    @property
-    def colors(self):
-        if self._colors:
-            return self._colors
-        self._colors = get_paletton("workspace/paletton.txt")
-        return self._colors
-
-    @property
-    def bottom_length(self):
-        if self._bottom_length:
-            return self._bottom_length
-        self._bottom_length = abs(self.points[2] - self.points[3])
-        return self._bottom_length
-
-    @property
-    def rep_spacing(self):
-        if self._rep_spacing:
-            return self._rep_spacing
+    def calc_rep_spacing(self):
         self._rep_spacing = self.pent_width * 2 + self.bottom_length
-        return self._rep_spacing
 
-    @property
-    def column_offset(self):
-        if self._column_offset:
-            return self._column_offset
-        self.calculate_transforms()
-        return self._column_offset
+    def calc_bottom_length(self):
+        self._bottom_length = abs(self.points[2] - self.points[3])
 
-    @property
-    def transforms(self):
-        if self._transforms:
-            return self._transforms
-        self.calculate_transforms()
-        return self._transforms
-
-    @property
-    def cairo_group(self):
-        if self._cairo_group:
-            return self._cairo_group
-        self.calculate_transforms()
-        return self._cairo_group
-
-    @property
-    def pattern_viewbox(self):
-        if self._pattern_viewbox:
-            return self._pattern_viewbox
+    def calc_pattern_viewbox(self):
         bbox = calc_overall_bbox(self.cairo_group)
         vbwidth = self.cairo_group[1][3].end.real + self.pent_height
         vbheight = self.pent_height * 2
         self._pattern_viewbox = min(bbox[0], bbox[1]) + self.cairo_group[1][2].end.real, \
                                 min(bbox[2], bbox[3]), vbwidth * self.repetitions, \
                                 vbheight * self.repetitions
-        return self._pattern_viewbox
-
-    @property
-    def num_down(self):
-        return 1 + self.repetitions
-
-    @property
-    def num_across(self):
-        return 1 + 2 * self.repetitions
 
     def calc_pentagon_dimensions(self):
         bbox = calc_overall_bbox(self.new_pentagon())
@@ -220,6 +131,26 @@ class CairoTiler(object):
         self._transforms.append([-90, diff])
         self._cairo_group[3] = self._cairo_group[3].translated(diff)
         self._column_offset = self._cairo_group[0][0].end - self._cairo_group[1][2].end
+
+    def init_pentagon_points(self):
+        # we want a pentagon with the interior angles 120, 90, 120, 120, 90 interior
+        # angles
+        #     1
+        # 5        2
+        #    4  3
+        angle1 = 120.0
+        length1 = 300
+        # start with the top corner at 0, 0
+        self._points = [0, None, None, None, None]
+        self._points[1] = self._points[0] + length1 * cexp(1j * 0.5 * angle1 * pi / 180.0)
+        self._points[4] = self._points[0] + length1 * cexp(
+            -1j * 0.5 * angle1 * pi / 180.0)
+        angle23 = (180 - angle1 * 0.5 - 90)
+        self._points[2] = self._points[1] + length1 * cexp(-1j * angle23 * pi / 180.0)
+        self._points[3] = self._points[4] + length1 * cexp(1j * angle23 * pi / 180.0)
+
+    def init_colors(self):
+        self._colors = get_paletton("workspace/paletton.txt")
 
     def new_pentagon(self):
         return Path(
@@ -292,12 +223,17 @@ class CairoTiler(object):
         dwg.save(pretty=True)
 
     def draw_pattern(self):
-        dwg = Drawing("{}/snake_tiling_m_{}_{}.svg".format(self.output_folder, self.dx,
-                                                           self.dy))
+        self.output_filename = "{}/snake_tiling_m_{}_{}.svg".format(self.output_folder,
+                                                                    self.dx,
+                                                           self.dy)
+        dwg = Drawing(self.output_filename)
         # add background panel
-        dwg.add(
-            dwg.rect(insert=(self.pattern_viewbox[0], self.pattern_viewbox[1]),
-                     size=('100%', '100%'), fill='#3072a2'))
+        background_panel = dwg.rect(insert=(self.pattern_viewbox[0], self.pattern_viewbox[1]),
+                     size=('100%', '100%'), fill='#3072a2')
+        clip_path = dwg.defs.add(dwg.clipPath(id="background_panel"))
+        clip_path.add(background_panel)
+        clipped_drawing = dwg.add(dwg.g(clip_path="url(#background_panel)", id="clippedpath"))
+        clipped_drawing.add(background_panel)
         current_color = 0
 
         def add_pentagon(group, transform, current_color, draw_pent=True):
@@ -312,7 +248,7 @@ class CairoTiler(object):
 
         for y in range(self.num_down):
             transform = "translate({}, {})".format(0, self.rep_spacing * y)
-            dgroup = dwg.add(dwg.g(transform=transform))
+            dgroup = clipped_drawing.add(dwg.g(transform=transform))
             for x in range(self.num_across):
                 # if x is odd, point 1 of pent 1 needs to be attached to point 3 of pent 2
                 if x % 2 == 1:
@@ -338,7 +274,17 @@ class CairoTiler(object):
                     current_color += 1
 
         dwg.viewbox(*self.pattern_viewbox)
-        dwg.save(pretty=True)
+        dwg.save()
+
+    def export_png(self):
+        # this step requires that you have imagemagick working.
+        # this could be replaced with a python binding to imagemagick, however, these
+        # bindings cause python to crash on my computer.
+        dpi = 150
+        width_inches = 36 # one yard
+        size = dpi*width_inches
+        subprocess.call(['convert', self.output_filename, '-resize', '{}x{}'.format(size, size),
+                         self.output_filename.replace(".svg", ".png")])
 
     def ranged_diffs(self):
         ds = [0, 0.25, 0.5, 0.75, 1.0]
@@ -351,5 +297,6 @@ class CairoTiler(object):
 
 if __name__ == "__main__":
     args = parser.parse_args()
-    _tiler = CairoTiler(**args)
+    _tiler = CairoTiler(**vars(args))
     _tiler.draw_pattern()
+    _tiler.export_png()
