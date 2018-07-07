@@ -43,3 +43,18 @@ Usage:
 ```bash
 python2.7 filmbox_to_pattern.py --fbx workspace/your_fbx.FBX
 ```
+
+pattern_tiling.py
+=================
+
+Repeat an svg in a cairo tiling pattern.
+
+Usage:
+
+```bash
+python2.7 pattern_tiling.py --filename workspace/PSF_snake_white.svg --dx 0.25 --dy -0 --repetitions 3
+```
+
+Generates patterns like:
+
+![python3 snake cairo tiling](pattern_tiling.png)
