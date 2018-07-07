@@ -1,4 +1,4 @@
-from math import pi, exp, cos, sin
+from math import pi, exp, cos, sin, radians
 from os.path import basename, isdir
 
 from os import makedirs
@@ -135,19 +135,18 @@ class CairoTiler(object):
     def init_pentagon_points(self):
         # we want a pentagon with the interior angles 120, 90, 120, 120, 90 interior
         # angles
-        #     1
-        # 5        2
-        #    4  3
-        angle1 = 120.0
+        #     0
+        # 4        1
+        #    3  2
+        angle01 = 60.0
         length1 = 300
         # start with the top corner at 0, 0
         self._points = [0, None, None, None, None]
-        self._points[1] = self._points[0] + length1 * cexp(1j * 0.5 * angle1 * pi / 180.0)
-        self._points[4] = self._points[0] + length1 * cexp(
-            -1j * 0.5 * angle1 * pi / 180.0)
-        angle23 = (180 - angle1 * 0.5 - 90)
-        self._points[2] = self._points[1] + length1 * cexp(-1j * angle23 * pi / 180.0)
-        self._points[3] = self._points[4] + length1 * cexp(1j * angle23 * pi / 180.0)
+        self._points[1] = self._points[0] + length1 * cexp(1j * radians(angle01))
+        self._points[4] = self._points[0] + length1 * cexp(-1j * radians(angle01))
+        angle12 = -(180 - angle01 - 90)
+        self._points[2] = self._points[1] + length1 * cexp(1j * radians(angle12))
+        self._points[3] = self._points[4] + length1 * cexp(-1j * radians(angle12))
 
     def init_colors(self):
         self._colors = get_paletton("workspace/paletton.txt")
