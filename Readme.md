@@ -58,3 +58,5 @@ python2.7 pattern_tiling.py --filename workspace/PSF_snake_white.svg --dx 0.25 -
 Generates patterns like:
 
 ![python3 snake cairo tiling](pattern_tiling.png)
+
+Scaling is experimental.
