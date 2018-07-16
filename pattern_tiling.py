@@ -21,6 +21,8 @@ parser.add_argument('--dx', type=float,
 parser.add_argument('--dy', type=float,
                     help="The y-distance to translate the image (in percentage of the "
                          "total height).")
+parser.add_argument('--scale', type=float,
+                    help="The scaling factor for the input image (in a fractional value).")
 parser.add_argument('--repetitions', type=float,
                     help="The number of repetitions along each dimension of the tiling.")
 
@@ -57,10 +59,11 @@ def prop(property_name, generator):
 
 
 class CairoTiler(object):
-    def __init__(self, filename, dx=None, dy=None, repetitions=3):
+    def __init__(self, filename, dx=None, dy=None, repetitions=3, scale=1):
         self.filename = filename
         self.dx = dx
         self.dy = dy
+        self.scale = scale
         if repetitions is None:
             raise ValueError("got no repetitions")
         self.repetitions = repetitions
@@ -194,6 +197,10 @@ class CairoTiler(object):
 
     def import_tile(self):
         self._tile_paths, self._tile_attributes = svg2paths(self.filename)
+        if self.scale == 1:
+            return
+        for i, path in enumerate(self._tile_paths):
+            self._tile_paths[i] = path.scaled(self.scale)
 
     def generate_tiling(self):
         dwg = Drawing("{}/tiling2.svg".format(self.output_folder), profile="tiny")
