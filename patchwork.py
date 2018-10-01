@@ -1,6 +1,8 @@
 import argparse
 from pdfrw import PdfReader
+from re import match
 from svgwrite import Drawing, rgb
+from svgwrite.container import Group
 from svgpathtools import Path, parse_path
 
 parser = argparse.ArgumentParser(
@@ -9,6 +11,18 @@ parser.add_argument('--filename', type=str, help='The filename of the pdf patter
 parser.add_argument('--size', type=str, help="The size of the pattern to analyze.")
 
 point_separator = ","
+
+
+def cmyk(c, m, y, k):
+    """
+    this was taken from https://stackoverflow.com/questions/14088375/how-can-i-convert-rgb-to-cmyk-and-vice-versa-in-python
+    """
+    rgb_scale = 1.0
+    cmyk_scale = 1.0
+    r = rgb_scale * (1.0 - (c + k) / float(cmyk_scale))
+    g = rgb_scale * (1.0 - (m + k) / float(cmyk_scale))
+    b = rgb_scale * (1.0 - (y + k) / float(cmyk_scale))
+    return r, g, b
 
 
 def transform_point(point, matrix=(1, 0, 0, 1, 0, 0), format="float", relative=False):
@@ -44,8 +58,19 @@ def transform_str(input, matrix):
     if len(parts) == 1:
         return input
     else:
-        point = [float(p) for p in parts]
+        try:
+            point = [float(p) for p in parts]
+        except ValueError:
+            raise ValueError("invalid parts {}".format(parts))
         return transform_point(point, matrix, format="str")
+
+
+def endswith(line, ending):
+    if len(line) == len(ending):
+        return line == ending
+    if line.find(ending) < 0:
+        return False
+    return len(line) - len(ending) == line.find(ending)
 
 
 def parse_shape(shape, i, gstates):
@@ -55,6 +80,8 @@ def parse_shape(shape, i, gstates):
     fill = "none"
     stroke = rgb(0, 0, 0)
     stroke_width = 4
+    stroke_dasharray = None
+    stroke_miterlimit = None
     transform = (1, 0, 0, 1, 0, 0)
     shapes_stack = []
     d = ""
@@ -68,13 +95,28 @@ def parse_shape(shape, i, gstates):
                 nums.append(float(part))
             except ValueError:
                 pass
-        operation = parts[-1]
-        if operation == 'BDC':
+        if endswith(line, 'BDC'):
             continue
-        elif operation == 'q':
+        elif endswith(line, 'Tj'):
+            text = ' '.join(parts[:-1])
+            text = text.split('Tj')[0]
+            group = Group(transform="matrix({})".format(' '.join([str(d) for d in transform])))
+            group.add(dwg.text(text))
+            shapes_stack.append(group)
+        elif endswith(line, 'Tc'):
+            pass # not yet implemented
+        elif endswith(line, 'Tm'):
+            for i, part in enumerate(parts):
+                if part == 'Tm':
+                    transform = [float(d) for d in parts[i-6: i]]
+                if part == 'Tw':
+                    word_spacing = parts[i-1]
+                if part == 'Tc':
+                    char_spacing = parts[i-1]
+        elif endswith(line, 'q'):
             # q - start stack
             continue
-        elif operation == 're':
+        elif endswith(line, 're'):
             # rectangle
             vals = {'insert': (nums[0], nums[1]), 'size': (nums[2], nums[3])}
             if fill:
@@ -82,42 +124,44 @@ def parse_shape(shape, i, gstates):
             if stroke:
                 vals['stroke'] = stroke
             shapes_stack.append(dwg.rect(**vals))
-        elif operation == 'n':
+        elif endswith(line, 'n'):
             # - clipping path
             continue
-        elif operation == 'RG':
+        elif endswith(line, 'RG'):
             # set stroke color
             stroke = rgb(*nums[0:3])
-        elif operation == 'J':
+        elif endswith(line, 'K'):
+            stroke = rgb(*cmyk(*nums[0:4]))
+        elif endswith(line, 'J'):
             # not sure how to implement cap styles
             continue
-        elif operation == 'cm':
+        elif endswith(line, 'cm'):
             # current transformation matrix
             transform = nums[0:6]
-        elif operation == 'F' or operation == 'f':
+        elif endswith(line, 'F') or endswith(line, 'f'):
             # fill
             fill = rgb(*nums[0:3])
-        elif operation == 'm':
+        elif endswith(line, 'm'):
             # move to
-            d += "M " + format_pointstr(parts[0:2])
-        elif operation == 'c':
+            d += " M " + format_pointstr(parts[0:2])
+        elif endswith(line, ' c'):
             # curve
             d += " C " + format_pointstr(parts[0:6])
-        elif operation == 'v':
+        elif endswith(line, 'v'):
             # append to bezier curve
             d += " S " + format_pointstr(parts[0:4])
-        elif operation == 'y':
+        elif endswith(line, 'y'):
             d += " C " + format_pointstr(parts[0:4])+" "+format_pointstr(parts[2:4])
-        elif operation == 'l':
+        elif endswith(line, 'l'):
             # line to
             d += " L " + format_pointstr(parts[0:2])
-        elif operation == 'h':
+        elif endswith(line, 'h'):
             # make sure it's a closed path
             continue
-        elif operation == 'S':
+        elif endswith(line, 'S'):
             # stroke to 4-unit width
             continue
-        elif operation == 'Q':
+        elif endswith(line, 'Q'):
             # end stack (draw)
             # apply transformation...
             for shape in shapes_stack:
@@ -131,21 +175,41 @@ def parse_shape(shape, i, gstates):
                     vals['fill'] = fill
                 if stroke:
                     vals['stroke'] = stroke
-
+                if stroke_dasharray:
+                    vals['stroke-dasharray'] = stroke_dasharray
+                if stroke_miterlimit:
+                    vals['stroke-miterlimit'] = stroke_miterlimit
                 dwg.add(dwg.path(**vals))
             d = ''
             shapes_stack = []
-        elif operation == 'gs':
+        elif endswith(line, 'gs'):
             key = parts[0]
             if key not in gstates:
                 print("could not find state %s in dictionary")
             state = gstates[key]
             # color blending not yet implemented
             pass
-        elif operation == 'w':
+        elif endswith(line, 'w'):
             stroke_width = nums[0]
+        elif endswith(line, 'd'):
+            fullstring = " ".join(parts[:-1])
+            parsed = match('([\w\s\d]+)\[([\d\s]+)\](\d)', fullstring)
+            if parsed:
+                line_props = parsed.group(1)
+                if line_props.find('M') >= 0:
+                    m_part = line_props.split('M')[0].split(' ')[-2]
+                    stroke_miterlimit = float(m_part)
+                if line_props.find('w') >= 0:
+                    m_part = line_props.split('w')[0].split(' ')[-2]
+                    stroke_width = float(m_part)
+
+                stroke_dasharray = parsed.group(2)
+                offset = float(parsed.group(3)) # throw away the offset, it doesn't
+                # convert nicely to svg
+        elif endswith(line, 'M'):
+            stroke_miterlimit = nums[0]
         else:
-            print("not sure what to do with %s %s" % (operation, line))
+            print("not sure what to do with %s" % line)
     dwg.save()
     return paths
 
